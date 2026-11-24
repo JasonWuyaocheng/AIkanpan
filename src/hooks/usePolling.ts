@@ -1,23 +1,69 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-export function usePolling<T>(fn: () => Promise<T>, intervalMs: number, deps: unknown[] = []) {
+export interface PollingResult<T> {
+  data: T | null
+  error: string | null
+  loading: boolean
+  refreshing: boolean
+  stale: boolean
+  lastUpdated: number | null
+  refresh: () => Promise<T>
+}
+
+export function usePolling<T>(fn: () => Promise<T>, intervalMs: number, deps: unknown[] = []): PollingResult<T> {
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null)
   const fnRef = useRef(fn)
+  const dataRef = useRef<T | null>(null)
+  const requestId = useRef(0)
   fnRef.current = fn
+
+  const execute = useCallback(async (): Promise<T> => {
+    const id = ++requestId.current
+    if (dataRef.current !== null) setRefreshing(true)
+    else {
+      setLoading(true)
+      setError(null)
+    }
+    try {
+      const result = await fnRef.current()
+      if (id === requestId.current) {
+        dataRef.current = result
+        setData(result)
+        setError(null)
+        setLastUpdated(Date.now())
+      }
+      return result
+    } catch (err: any) {
+      if (id === requestId.current) setError(err?.message ?? '请求失败')
+      throw err
+    } finally {
+      if (id === requestId.current) {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     let alive = true
     let timer: ReturnType<typeof setTimeout>
+    requestId.current += 1
+    dataRef.current = null
+    setData(null)
+    setError(null)
+    setLoading(true)
+    setRefreshing(false)
+    setLastUpdated(null)
+
     const tick = async () => {
       try {
-        const d = await fnRef.current()
-        if (alive) {
-          setData(d)
-          setError(null)
-        }
-      } catch (err: any) {
-        if (alive) setError(err?.message ?? '请求失败')
+        await execute()
+      } catch {
+        // 错误已由 execute 暴露给界面；轮询继续运行。
       }
       if (alive) timer = setTimeout(tick, intervalMs)
     }
@@ -26,14 +72,19 @@ export function usePolling<T>(fn: () => Promise<T>, intervalMs: number, deps: un
       alive = false
       clearTimeout(timer)
     }
+    // deps 由调用方显式控制，避免每次渲染重启轮询。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intervalMs, ...deps])
+  }, [intervalMs, execute, ...deps])
 
-  function tickNow() {
-    return fnRef.current()
+  return {
+    data,
+    error,
+    loading,
+    refreshing,
+    stale: error !== null && data !== null,
+    lastUpdated,
+    refresh: execute,
   }
-
-  return { data, error, refresh: tickNow }
 }
 
 export function useSse(onEvent: (event: string, data: any) => void) {
@@ -41,7 +92,8 @@ export function useSse(onEvent: (event: string, data: any) => void) {
   handlerRef.current = onEvent
 
   useEffect(() => {
-    const es = new EventSource('/sse')
+    const token = window.aikanpanDesktop?.token
+    const es = new EventSource(token ? `/sse?token=${encodeURIComponent(token)}` : '/sse')
     const types = ['alert.triggered']
     const listeners: Array<[string, (e: MessageEvent) => void]> = []
     for (const type of types) {

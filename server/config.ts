@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const DATA_DIR = path.join(ROOT, 'data')
+const DATA_DIR = process.env.AIKANPAN_DATA_DIR?.trim() || path.join(ROOT, 'data')
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json')
 
 export interface AppSettings {
@@ -50,5 +50,4 @@ export function resolveApiKey(): { key: string; source: 'env' | 'settings' | 'no
   return { key: '', source: 'none' }
 }
 
-export const PORT = Number(process.env.PORT || 8787)
 export const DATA = DATA_DIR

@@ -19,10 +19,17 @@ export class JsonStore<T> {
   }
 
   write(data: T): void {
-    this.cache = data
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true })
     const tmp = this.filePath + '.tmp'
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2))
-    fs.renameSync(tmp, this.filePath)
+    try {
+      fs.writeFileSync(tmp, JSON.stringify(data, null, 2))
+      fs.renameSync(tmp, this.filePath)
+    } catch (error) {
+      this.cache = undefined
+      this.hasCache = false
+      throw error
+    }
+    this.cache = data
+    this.hasCache = true
   }
 }

@@ -1,8 +1,6 @@
 import { Router, type Response } from 'express'
 
-type Client = Response
-
-const clients = new Set<Client>()
+const clients = new Map<Response, ReturnType<typeof setInterval>>()
 
 function send(res: Response, event: string, data: unknown) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
@@ -16,13 +14,21 @@ export function broadcastAlert(payload: {
   message: string
   triggeredAt: string
 }) {
-  for (const client of clients) {
+  for (const client of clients.keys()) {
     try {
       send(client, 'alert.triggered', payload)
     } catch {
       clients.delete(client)
     }
   }
+}
+
+export function closeSseClients() {
+  for (const [client, heartbeat] of clients) {
+    clearInterval(heartbeat)
+    client.end()
+  }
+  clients.clear()
 }
 
 export const sseRoutes = Router()
@@ -34,17 +40,17 @@ sseRoutes.get('/', (req, res) => {
     Connection: 'keep-alive',
   })
   res.write('retry: 3000\n\n')
-  clients.add(res)
-  req.on('close', () => clients.delete(res))
-})
-
-const HEARTBEAT_MS = 25_000
-setInterval(() => {
-  for (const client of clients) {
+  const heartbeat = setInterval(() => {
     try {
-      client.write(':hb\n\n')
+      res.write(':hb\n\n')
     } catch {
-      clients.delete(client)
+      clearInterval(heartbeat)
+      clients.delete(res)
     }
-  }
-}, HEARTBEAT_MS).unref()
+  }, 25_000)
+  clients.set(res, heartbeat)
+  req.on('close', () => {
+    clearInterval(heartbeat)
+    clients.delete(res)
+  })
+})

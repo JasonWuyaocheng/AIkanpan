@@ -103,9 +103,22 @@ function checkAlert(alert: Alert, price: number, changePct: number): string | nu
   }
 }
 
-export function runAlertCheck(quoteMap: Map<string, { price: number; changePct: number }>) {
+export interface TriggeredAlert {
+  id: string
+  secid: string
+  symbol: string
+  name: string
+  message: string
+  triggeredAt: string
+}
+
+export function runAlertCheck(
+  quoteMap: Map<string, { price: number; changePct: number }>,
+  onAlert?: (alert: TriggeredAlert) => void,
+) {
   const data = store.read()
   let changed = false
+  const triggered: TriggeredAlert[] = []
   for (const alert of data.items) {
     if (!alert.enabled) continue
     const quote = quoteMap.get(alert.secid)
@@ -116,15 +129,20 @@ export function runAlertCheck(quoteMap: Map<string, { price: number; changePct: 
       alert.lastTriggeredAt = new Date().toISOString()
       if (alert.oneShot) alert.enabled = false
       changed = true
-      broadcastAlert({
+      const payload: TriggeredAlert = {
         id: alert.id,
         secid: alert.secid,
         symbol: alert.symbol,
         name: alert.name,
         message: `${TYPE_LABEL[alert.type]}：${message}`,
         triggeredAt: alert.lastTriggeredAt,
-      })
+      }
+      triggered.push(payload)
     }
   }
   if (changed) store.write(data)
+  for (const payload of triggered) {
+    broadcastAlert(payload)
+    onAlert?.(payload)
+  }
 }

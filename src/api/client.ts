@@ -103,10 +103,18 @@ export interface SettingsResponse {
   maskedKey: string
 }
 
+function requestHeaders(init?: RequestInit, hasBody = init?.body != null): Headers {
+  const headers = new Headers(init?.headers)
+  if (hasBody && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  const token = window.aikanpanDesktop?.token
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  return headers
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
-    headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
     ...init,
+    headers: requestHeaders(init),
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
@@ -160,7 +168,7 @@ export async function streamAi(
   try {
     const res = await fetch(`/api/ai/${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: requestHeaders(undefined, true),
       body: JSON.stringify(payload),
       signal,
     })
